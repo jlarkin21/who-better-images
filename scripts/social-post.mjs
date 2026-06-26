@@ -546,23 +546,30 @@ async function main() {
   const imageUrl = await uploadImage(png, fileName);
   console.log(`[social-post] uploaded → ${imageUrl}`);
 
-  // Pre-flight check: confirm the uploaded URL is publicly fetchable.
-  // raw.githubusercontent.com returns 404 to unauthenticated requests on
-  // PRIVATE repos — the most common cause of "Threads / IG 400 container
-  // failed" errors downstream (Meta can't fetch the image).
-  try {
-    const head = await fetch(imageUrl, { method: 'HEAD' });
-    if (!head.ok) {
-      throw new Error(
-        `Image URL is not publicly fetchable (HEAD ${head.status}). ` +
-        `If this is a private GitHub repo, raw.githubusercontent.com ` +
-        `serves 404 to anonymous requests. Make the repo public, or ` +
-        `switch the upload target to a public image host.`
-      );
+  // Pre-flight: wait for the uploaded URL to become publicly fetchable.
+  // raw.githubusercontent.com's CDN routinely lags 30–90s behind a fresh push
+  // (a brand-new file 404s to anonymous requests until it propagates), so poll
+  // with backoff instead of giving up on the first miss. NON-FATAL: Bluesky
+  // posts from the in-memory blob and never touches this URL, so a slow/blocked
+  // CDN must not abort the whole run — only Threads/IG fetch the URL, and the
+  // Promise.allSettled below already isolates their failures. (A persistent
+  // 404 here usually means IMAGE_REPO is a PRIVATE repo.)
+  let imagePublic = false;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      const head = await fetch(imageUrl, { method: 'HEAD' });
+      if (head.ok) { imagePublic = true; break; }
+    } catch {
+      // network blip — fall through to backoff + retry
     }
-  } catch (e) {
-    console.error('[social-post] image not publicly fetchable:', e?.message ?? e);
-    throw e;
+    await new Promise((r) => setTimeout(r, 5000 * (attempt + 1))); // 5s,10s,…,30s
+  }
+  if (!imagePublic) {
+    console.warn(
+      `[social-post] WARN: image URL still not publicly fetchable after retries ` +
+      `(${imageUrl}). Bluesky will still post from the blob; Threads/IG may fail ` +
+      `to fetch it. If this persists, confirm IMAGE_REPO is a PUBLIC repo.`
+    );
   }
 
   const alt = altTextFor(debate);
