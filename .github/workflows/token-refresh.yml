@@ -1,0 +1,46 @@
+name: Refresh Meta access tokens
+
+# Meta long-lived tokens (Threads + Instagram) last ~60 days but can be
+# refreshed any time after 24h old. Running weekly keeps them perpetually
+# fresh — Monday 06:00 UTC sits 7 hours before the daily 13:00 UTC
+# social-post run, so even a freshly-rotated token has settled before the
+# next post fires.
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: Setup Node
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: '20'
+
+      - name: Install libsodium-wrappers
+        # Pure-JS libsodium (has crypto_box_seal, which is what the GH
+        # Secrets API requires). --no-save keeps package.json untouched
+        # so this workflow is self-contained.
+        working-directory: scripts
+        run: npm install --no-save libsodium-wrappers
+
+      - name: Refresh tokens
+        working-directory: scripts
+        env:
+          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          # PAT with actions/secrets:write — the auto-provisioned
+          # GITHUB_TOKEN lacks that scope, so the user must add this
+          # secret manually. Fine-grained PAT: Actions Read+Write.
+          # Classic PAT: `repo` scope.
+          SECRETS_UPDATE_TOKEN: ${{ secrets.SECRETS_UPDATE_TOKEN }}
+          # GITHUB_REPOSITORY is auto-set by the runner ("owner/repo").
+        run: node token-refresh.mjs
