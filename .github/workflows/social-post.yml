@@ -1,0 +1,61 @@
+name: social-post
+
+# Daily auto-poster — lives in this PUBLIC repo on purpose: GitHub Actions is
+# free + unlimited for public repos, sidestepping the Actions billing block on
+# the private app repo (jlarkin21/who-better). The script pulls NOTHING from the
+# private repo — it fetches the live daily-debate API and screenshots the live
+# ShareCard on whobettersports.com — so it runs perfectly from here.
+#
+# Fires at 13:00 UTC (~9am ET). Also triggers on workflow_dispatch so you can
+# fire a one-off manually from the Actions tab. Headless Chrome screenshots the
+# live #share-card-root, so posts are pixel-identical to the in-app "Share card".
+#
+# Secrets needed (Settings → Secrets and variables → Actions → New repo secret):
+#   THREADS_USER_ID            — numeric Threads account id
+#   THREADS_ACCESS_TOKEN       — long-lived Threads token
+#   INSTAGRAM_USER_ID          — IG user id from graph.instagram.com/me
+#   INSTAGRAM_ACCESS_TOKEN     — IGAA… long-lived token
+#   BLUESKY_HANDLE             — e.g. "whobettersports.bsky.social"
+#   BLUESKY_APP_PASSWORD       — generated under Settings → App passwords
+#   IMAGE_REPO                 — public repo for the daily PNG (this repo: jlarkin21/who-better-images)
+#   IMAGE_REPO_TOKEN           — repo-scoped PAT that can push the PNG to IMAGE_REPO
+
+on:
+  schedule:
+    - cron: '0 13 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: social-post
+  cancel-in-progress: false
+
+permissions:
+  contents: read   # checkout only; the image PUT goes through IMAGE_REPO_TOKEN
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      - uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: '20'
+
+      # ubuntu-latest already ships Chrome at /usr/bin/google-chrome-stable, so
+      # we only need the puppeteer-core driver (not its bundled Chromium). sharp
+      # pads tall comparison cards into Instagram's accepted aspect ratio.
+      - name: Install puppeteer-core + sharp
+        run: npm install --no-save puppeteer-core@^23 sharp@^0.33
+
+      - name: Run social post
+        env:
+          IMAGE_REPO: ${{ secrets.IMAGE_REPO }}
+          IMAGE_REPO_TOKEN: ${{ secrets.IMAGE_REPO_TOKEN }}
+          THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
+          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+          INSTAGRAM_USER_ID: ${{ secrets.INSTAGRAM_USER_ID }}
+          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
+          BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+        run: node scripts/social-post.mjs
