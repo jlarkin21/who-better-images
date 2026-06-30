@@ -1,0 +1,54 @@
+name: wc2026-refresh
+
+# Daily refresh of the World Cup 2026 stat seed. Runs HERE (public repo = free
+# unlimited Actions), checks out the PRIVATE app repo, regenerates
+# src/data/wc2026Stats.ts from API-Football's live tournament numbers, and
+# commits it back — which triggers the Cloudflare Pages deploy that ships the
+# fresh stats. Fires at 11:00 UTC, ~2h before the 13:00 social-post run so the
+# new numbers are already live when the daily card is generated.
+#
+# Secret needed: IMAGE_REPO_TOKEN — the classic `repo`-scoped PAT (already set
+# for the poster). It can read AND push jlarkin21/who-better.
+
+on:
+  schedule:
+    - cron: '0 11 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: wc2026-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout app repo (private)
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          repository: jlarkin21/who-better
+          token: ${{ secrets.IMAGE_REPO_TOKEN }}
+
+      - uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: '20'
+
+      # Self-contained — talks to the whobettersports.com/api/football proxy
+      # (server key injected there) and reads the committed name map, so no
+      # extra install or secret is required.
+      - name: Refresh WC 2026 seed
+        run: node scripts/seed-wc-2026.mjs
+
+      - name: Commit + push if changed
+        run: |
+          if git diff --quiet -- src/data/wc2026Stats.ts; then
+            echo "WC 2026 seed unchanged — nothing to commit."
+          else
+            git config user.name "wc2026-refresh"
+            git config user.email "actions@users.noreply.github.com"
+            git add src/data/wc2026Stats.ts
+            git commit -m "chore: refresh WC 2026 tournament seed"
+            git push
+            echo "Pushed refreshed WC 2026 seed → triggers Cloudflare deploy."
+          fi
