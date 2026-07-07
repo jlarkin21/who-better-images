@@ -497,7 +497,7 @@ const SPORT_HASHTAGS = {
   wnba:   { discovery: ['#WNBA', '#womensbasketball'],         twitterStyle: [] },
   nfl:    { discovery: ['#NFL', '#football'],                  twitterStyle: ['#NFLtwitter'] },
   mlb:    { discovery: ['#MLB', '#baseball'],                  twitterStyle: [] },
-  soccer: { discovery: ['#WorldCup', '#football', '#soccer'],  twitterStyle: [] },
+  soccer: { discovery: ['#WorldCup2026', '#FIFAWorldCup', '#football'], twitterStyle: [] },
 };
 
 const tagsFor = (sport, includeTwitter) => {
@@ -506,16 +506,37 @@ const tagsFor = (sport, includeTwitter) => {
   return includeTwitter ? [...t.discovery, ...t.twitterStyle].join(' ') : t.discovery.join(' ');
 };
 
+// A hashtag for one team/player label: strip accents + punctuation, drop a
+// trailing Jr/Sr/III suffix, and tag the distinctive last word — a player's
+// surname or a team's nickname/nation. "Kylian Mbappé" → #Mbappe, "Norway" →
+// #Norway, "New York Yankees" → #Yankees.
+const NAME_SUFFIX = new Set(['jr', 'sr', 'ii', 'iii', 'iv']);
+const participantTag = (label) => {
+  const words = (label || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^A-Za-z\s]/g, ' ').trim().split(/\s+/).filter(Boolean);
+  while (words.length > 1 && NAME_SUFFIX.has(words[words.length - 1].toLowerCase())) words.pop();
+  const key = words[words.length - 1] || '';
+  return key ? `#${key}` : '';
+};
+// Both sides' tags, e.g. "#Norway #England" or "#Messi #Mbappe".
+const participantTags = (d) =>
+  [participantTag(d.leftLabel), participantTag(d.rightLabel)].filter(Boolean).join(' ');
+
 const verdictLine = (d) => (d.verdict ? `\nThe stats say: ${d.verdict}.\n` : '');
 
-const captionShort = (d) =>
-  `Today's debate: ${d.leftLabel} vs ${d.rightLabel}.\n\n${d.hook}\n${verdictLine(d)}\nSettle it → ${d.pageUrl}`;
+const captionShort = (d) => {
+  const base = `Today's debate: ${d.leftLabel} vs ${d.rightLabel}.\n\n${d.hook}\n${verdictLine(d)}\nSettle it → ${d.pageUrl}`;
+  const withTags = `${base}\n\n${participantTags(d)}`;
+  // Bluesky caps a post at 300 graphemes — keep the tags only if they fit.
+  return withTags.length <= 300 ? withTags : base;
+};
 
 const captionMedium = (d) =>
-  `Today's debate: ${d.leftLabel} vs ${d.rightLabel}.\n\n${d.hook}\n${verdictLine(d)}\nSettle it with real stats → ${d.pageUrl}\n\n${tagsFor(d.sport, true)}`.trim();
+  `Today's debate: ${d.leftLabel} vs ${d.rightLabel}.\n\n${d.hook}\n${verdictLine(d)}\nSettle it with real stats → ${d.pageUrl}\n\n${participantTags(d)} ${tagsFor(d.sport, true)}`.trim();
 
 const captionLong = (d) =>
-  `Today's debate: ${d.leftLabel} vs ${d.rightLabel}.\n\n${d.hook}\n${verdictLine(d)}\nReal stats, real verdict — link in bio.\nDrop your pick in the comments.\n\n#WhoBetter #sportsdebate ${tagsFor(d.sport, false)}`.trim();
+  `Today's debate: ${d.leftLabel} vs ${d.rightLabel}.\n\n${d.hook}\n${verdictLine(d)}\nReal stats, real verdict — link in bio.\nDrop your pick in the comments.\n\n#WhoBetter #sportsdebate ${participantTags(d)} ${tagsFor(d.sport, false)}`.trim();
 
 const altTextFor = (d) =>
   `Side-by-side stat comparison card: ${d.leftLabel} vs ${d.rightLabel}.`;
