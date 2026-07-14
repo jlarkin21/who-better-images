@@ -541,12 +541,40 @@ const captionLong = (d) =>
 const altTextFor = (d) =>
   `Side-by-side stat comparison card: ${d.leftLabel} vs ${d.rightLabel}.`;
 
+// True if today's PNG for this matchup already exists on the image branch — the
+// idempotency key that stops the daily rotation from re-posting a card that a
+// featured one-off already sent earlier the same day (and vice-versa). Checked
+// against the authoritative Contents API (not the lagging raw CDN).
+async function alreadyPosted(fileName) {
+  const token = env.IMAGE_REPO_TOKEN;
+  const repo = env.IMAGE_REPO;
+  if (!token || !repo) return false; // uploadImage will raise a clear error later
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${repo}/contents/${fileName}?ref=social-posts`,
+      { headers: { Authorization: `Bearer ${token}`, 'user-agent': 'who-better-social-post/1.0' } }
+    );
+    return res.ok; // 200 = already posted today, 404 = not yet
+  } catch {
+    return false; // network blip — don't block the post
+  }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────
 
 async function main() {
   console.log('[social-post] fetching daily debate…');
   const debate = await fetchDailyDebate();
   console.log(`[social-post] matchup: ${debate.leftLabel} vs ${debate.rightLabel}`);
+
+  // Per-day, per-matchup filename — doubles as the idempotency key so we never
+  // post the same matchup twice in one day (FORCE_POST=1 overrides for re-fires).
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const fileName = `posts/${today}-${debate.id}.png`;
+  if (env.FORCE_POST !== '1' && (await alreadyPosted(fileName))) {
+    console.log(`[social-post] ${debate.id} already posted ${today} — skipping (FORCE_POST=1 to override).`);
+    return;
+  }
 
   console.log('[social-post] screenshotting ShareCard…');
   const { png: rawPng, score } = await screenshotShareCard(debate);
@@ -559,10 +587,6 @@ async function main() {
   // Caption from the card's own score so the words match the picture.
   const captionDebate = { ...debate, verdict: verdictFromCard(debate, score) };
 
-  // Per-day filename so each post has a stable, unique URL — no jsdelivr
-  // / CDN cache collisions if a later run overwrites the same path.
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-  const fileName = `posts/${today}-${debate.id}.png`;
   console.log(`[social-post] uploading PNG to repo branch → ${fileName}`);
   const imageUrl = await uploadImage(png, fileName);
   console.log(`[social-post] uploaded → ${imageUrl}`);
