@@ -1,11 +1,19 @@
 name: wc2026-refresh
 
-# Daily refresh of the World Cup 2026 stat seed. Runs HERE (public repo = free
-# unlimited Actions), checks out the PRIVATE app repo, regenerates
-# src/data/wc2026Stats.ts from API-Football's live tournament numbers, and
-# commits it back — which triggers the Cloudflare Pages deploy that ships the
-# fresh stats. Fires at 11:00 UTC, ~2h before the 13:00 social-post run so the
-# new numbers are already live when the daily card is generated.
+# Daily refresh of the World Cup 2026 data. Runs HERE (public repo = free
+# unlimited Actions), checks out the app repo, and from ESPN's free, key-less
+# fifa.world feed regenerates:
+#   • src/data/wc2026Stats.ts        — each player's tournament stat line
+#   • functions/_lib/trending.ts     } the upcoming-round matchups (team +
+#   • src/utils/trendingComparisons.ts } top-scorer duels) between @wc-auto markers
+# then commits whatever changed — which triggers the Cloudflare Pages deploy
+# that ships the fresh numbers + fixtures. So as results come in and the bracket
+# advances (QFs → semis → final), the scheduled posts follow "who plays who"
+# automatically. Fires at 11:00 UTC, ~2h before the 13:00 social-post run so the
+# new data is already live when the daily card is generated.
+#
+# Source note: API-Football's free plan stopped serving the 2026 season, so the
+# whole WC pipeline reads ESPN (site.api.espn.com) instead — no key, no quota.
 #
 # Secret needed: IMAGE_REPO_TOKEN — the classic `repo`-scoped PAT (already set
 # for the poster). It can read AND push jlarkin21/who-better.
@@ -24,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout app repo (private)
+      - name: Checkout app repo
         uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           repository: jlarkin21/who-better
@@ -34,21 +42,24 @@ jobs:
         with:
           node-version: '20'
 
-      # Self-contained — talks to the whobettersports.com/api/football proxy
-      # (server key injected there) and reads the committed name map, so no
-      # extra install or secret is required.
-      - name: Refresh WC 2026 seed
+      # Both scripts are self-contained — they read ESPN's public fifa.world API
+      # directly, so no install and no secret is required. Seed first so the
+      # matchup hooks quote the current goal tallies.
+      - name: Refresh WC 2026 stat seed (ESPN)
         run: node scripts/seed-wc-2026.mjs
+
+      - name: Regenerate upcoming WC 2026 matchups (ESPN bracket)
+        run: node scripts/gen-wc-matchups.mjs
 
       - name: Commit + push if changed
         run: |
-          if git diff --quiet -- src/data/wc2026Stats.ts; then
-            echo "WC 2026 seed unchanged — nothing to commit."
+          git add src/data/wc2026Stats.ts functions/_lib/trending.ts src/utils/trendingComparisons.ts
+          if git diff --cached --quiet; then
+            echo "WC 2026 seed + matchups unchanged — nothing to commit."
           else
             git config user.name "wc2026-refresh"
             git config user.email "actions@users.noreply.github.com"
-            git add src/data/wc2026Stats.ts
-            git commit -m "chore: refresh WC 2026 tournament seed"
+            git commit -m "chore: refresh WC 2026 seed + upcoming matchups"
             git push
-            echo "Pushed refreshed WC 2026 seed → triggers Cloudflare deploy."
+            echo "Pushed refreshed WC 2026 data → triggers Cloudflare deploy."
           fi
