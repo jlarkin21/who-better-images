@@ -6,24 +6,31 @@ name: social-post
 # private repo — it fetches the live daily-debate API and screenshots the live
 # ShareCard on whobettersports.com — so it runs perfectly from here.
 #
-# Fires at 13:00 UTC (~9am ET). Also triggers on workflow_dispatch so you can
-# fire a one-off manually from the Actions tab. Headless Chrome screenshots the
-# live #share-card-root, so posts are pixel-identical to the in-app "Share card".
+# Fires at 13:00 UTC (~9am ET) with the daily rotation. Also triggers on
+# workflow_dispatch with an optional `debate` input to fire a SPECIFIC matchup
+# on demand (e.g. `-f debate=france-vs-spain-2026`), and carries a couple of
+# dated one-off crons that feature specific World Cup fixtures. The poster is
+# idempotent per matchup per day, so a featured fire and the daily rotation
+# never double-post the same card.
 #
 # Secrets needed (Settings → Secrets and variables → Actions → New repo secret):
-#   THREADS_USER_ID            — numeric Threads account id
-#   THREADS_ACCESS_TOKEN       — long-lived Threads token
-#   INSTAGRAM_USER_ID          — IG user id from graph.instagram.com/me
-#   INSTAGRAM_ACCESS_TOKEN     — IGAA… long-lived token
-#   BLUESKY_HANDLE             — e.g. "whobettersports.bsky.social"
-#   BLUESKY_APP_PASSWORD       — generated under Settings → App passwords
-#   IMAGE_REPO                 — public repo for the daily PNG (this repo: jlarkin21/who-better-images)
-#   IMAGE_REPO_TOKEN           — repo-scoped PAT that can push the PNG to IMAGE_REPO
+#   THREADS_USER_ID / THREADS_ACCESS_TOKEN
+#   INSTAGRAM_USER_ID / INSTAGRAM_ACCESS_TOKEN
+#   BLUESKY_HANDLE / BLUESKY_APP_PASSWORD
+#   IMAGE_REPO (jlarkin21/who-better-images) / IMAGE_REPO_TOKEN (repo-scoped PAT)
 
 on:
   schedule:
-    - cron: '0 13 * * *'
+    - cron: '0 13 * * *'      # daily rotation (~9am ET)
+    # One-off featured World Cup posts (remove after they fire):
+    - cron: '30 12 15 7 *'    # 2026-07-15 12:30 UTC (~8:30am ET) → England vs Argentina
+    - cron: '30 13 15 7 *'    # 2026-07-15 13:30 UTC (~9:30am ET) → Kane vs Messi
   workflow_dispatch:
+    inputs:
+      debate:
+        description: 'Optional TRENDING id to post instead of the daily rotation (e.g. france-vs-spain-2026)'
+        required: false
+        default: ''
 
 concurrency:
   group: social-post
@@ -41,6 +48,27 @@ jobs:
       - uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
         with:
           node-version: '20'
+
+      # A featured matchup can come from the manual `debate` input or from one
+      # of the dated crons; otherwise post the day's rotation. Pins it via the
+      # daily-debate API's `?id=` override.
+      - name: Resolve matchup
+        run: |
+          BASE="https://whobettersports.com/api/daily-debate"
+          ID="${{ github.event.inputs.debate }}"
+          if [ -z "$ID" ]; then
+            case "${{ github.event.schedule }}" in
+              "30 12 15 7 *") ID="england-vs-argentina-2026" ;;
+              "30 13 15 7 *") ID="kane-vs-messi-2026" ;;
+            esac
+          fi
+          if [ -n "$ID" ]; then
+            echo "DAILY_DEBATE_URL=$BASE?id=$ID" >> "$GITHUB_ENV"
+            echo "Featured matchup → $ID"
+          else
+            echo "DAILY_DEBATE_URL=$BASE" >> "$GITHUB_ENV"
+            echo "Daily rotation"
+          fi
 
       # ubuntu-latest already ships Chrome at /usr/bin/google-chrome-stable, so
       # we only need the puppeteer-core driver (not its bundled Chromium). sharp
