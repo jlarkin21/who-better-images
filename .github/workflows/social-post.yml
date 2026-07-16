@@ -8,8 +8,7 @@ name: social-post
 #
 # Fires at 13:00 UTC (~9am ET) with the daily rotation. Also triggers on
 # workflow_dispatch with an optional `debate` input to fire a SPECIFIC matchup
-# on demand (e.g. `-f debate=france-vs-spain-2026`), and carries a couple of
-# dated one-off crons that feature specific World Cup fixtures. The poster is
+# on demand (e.g. `-f debate=spain-vs-argentina-2026`). The poster is
 # idempotent per matchup per day, so a featured fire and the daily rotation
 # never double-post the same card.
 #
@@ -22,9 +21,6 @@ name: social-post
 on:
   schedule:
     - cron: '0 13 * * *'      # daily rotation (~9am ET)
-    # One-off featured World Cup posts (remove after they fire):
-    - cron: '30 12 15 7 *'    # 2026-07-15 12:30 UTC (~8:30am ET) → England vs Argentina
-    - cron: '30 13 15 7 *'    # 2026-07-15 13:30 UTC (~9:30am ET) → Kane vs Messi
   workflow_dispatch:
     inputs:
       debate:
@@ -49,19 +45,12 @@ jobs:
         with:
           node-version: '20'
 
-      # A featured matchup can come from the manual `debate` input or from one
-      # of the dated crons; otherwise post the day's rotation. Pins it via the
-      # daily-debate API's `?id=` override.
+      # A featured matchup comes from the manual `debate` input; otherwise
+      # post the day's rotation. Pins it via the daily-debate API's `?id=`.
       - name: Resolve matchup
         run: |
           BASE="https://whobettersports.com/api/daily-debate"
           ID="${{ github.event.inputs.debate }}"
-          if [ -z "$ID" ]; then
-            case "${{ github.event.schedule }}" in
-              "30 12 15 7 *") ID="england-vs-argentina-2026" ;;
-              "30 13 15 7 *") ID="kane-vs-messi-2026" ;;
-            esac
-          fi
           if [ -n "$ID" ]; then
             echo "DAILY_DEBATE_URL=$BASE?id=$ID" >> "$GITHUB_ENV"
             echo "Featured matchup → $ID"
