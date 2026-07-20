@@ -18,9 +18,10 @@ name: wc2026-refresh
 # Secret needed: IMAGE_REPO_TOKEN — the classic `repo`-scoped PAT (already set
 # for the poster). It can read AND push jlarkin21/who-better.
 
+# DISABLED 2026-07-20: World Cup 2026 concluded (final 2026-07-19). The seed +
+# matchup generator have nothing left to refresh, so the daily schedule is off.
+# Kept as workflow_dispatch-only in case a future tournament reuses this.
 on:
-  schedule:
-    - cron: '0 11 * * *'
   workflow_dispatch:
 
 concurrency:
